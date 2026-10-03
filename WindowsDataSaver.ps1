@@ -1,6 +1,6 @@
 <#
 ================================================================================
- DataSaver.ps1  -  Stop Windows background downloads on a limited data hotspot
+ WindowsDataSaver.ps1  -  Stop Windows background downloads on a limited data hotspot
 ================================================================================
  HOW TO RUN
    Right-click this file -> Run with PowerShell -> Yes (Administrator prompt)
@@ -8,7 +8,7 @@
    Type 2 = Data saver OFF (use on Wi-Fi with plenty of data)
 
    If "Run with PowerShell" is missing, open Command Prompt and run:
-   powershell -ExecutionPolicy Bypass -File "C:\Scripts\DataSaver.ps1"
+   powershell -ExecutionPolicy Bypass -File "C:\Scripts\WindowsDataSaver.ps1"
 
 --------------------------------------------------------------------------------
  WHAT THE SCRIPT DOES FOR YOU (option 1)
@@ -20,6 +20,9 @@
    - Turns off automatic Microsoft Store app updates (policy)
    - Blocks the Microsoft Store and disables its Install Service, so Store
      apps cannot download or update (option 2 brings the Store back)
+   - Disables Windows Telemetry (DiagTrack) to cut diagnostic chatter
+   - Disables Microsoft Office background updates (OfficeC2RClient.exe) with
+     the Office update policy and the "Office Automatic Updates 2.0" task
 
 --------------------------------------------------------------------------------
  WHAT A SCRIPT CANNOT DO - DO THESE BY HAND (checklist)
@@ -55,7 +58,7 @@
  [ ] 6. Turn off News and Interests on the Taskbar
         Right-click the weather widget ("Hot days ahead" etc.) on the taskbar
         -> hover over "News and interests" -> select "Turn off".
-        (This stops the ActionsServer.exe process from fetching background data.)       
+        (This stops the ActionsServer.exe process from fetching background data.)
 
  [ ] 7. OneDrive
         Not signed in on this laptop, so it has nothing to sync. If you want
@@ -81,12 +84,14 @@
         a restart. Still check Resource Monitor after a reboot. If anything
         downloads again, run this script and choose 1 before using the hotspot.
         After option 2, RESTART the laptop so DoSvc starts normally again.
+        (Windows feature updates can switch DiagTrack back on, so re-run
+        option 1 now and then.)
 
  [ ] 12. SECURITY NOTE
-        While data saver is ON, this PC does not get Windows updates. Windows
-        10 needs security updates, so run option 2 on Wi-Fi with plenty of
-        data from time to time, let it update fully, then run option 1 again.
-         
+        While data saver is ON, this PC does not get Windows updates, and
+        Defender definition updates are blocked too. Windows 10 needs security
+        updates, so run option 2 on Wi-Fi with plenty of data from time to
+        time, let it update fully, then run option 1 again.
 
 --------------------------------------------------------------------------------
  If something still downloads, run this to see which service owns the process
@@ -102,9 +107,11 @@ if (-not $isAdmin) {
     exit
 }
 
-$doKey    = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'
-$auKey    = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
-$storeKey = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore'
+$doKey     = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'
+$auKey     = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
+$storeKey  = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore'
+$officeKey = 'HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\common\officeupdate'
+$officeTaskName = 'Office Automatic Updates 2.0'
 
 function Enable-DataSaver {
     Write-Host "Stopping download services..." -ForegroundColor Cyan
@@ -130,6 +137,15 @@ function Enable-DataSaver {
     reg add "HKLM\SYSTEM\CurrentControlSet\Services\InstallService" /v Start /t REG_DWORD /d 4 /f | Out-Null
     Stop-Service InstallService -Force -ErrorAction SilentlyContinue
 
+    Write-Host "Disabling Windows Telemetry (DiagTrack)..." -ForegroundColor Cyan
+    Stop-Service DiagTrack -Force -ErrorAction SilentlyContinue
+    Set-Service DiagTrack -StartupType Disabled -ErrorAction SilentlyContinue
+
+    Write-Host "Disabling Microsoft Office background updates..." -ForegroundColor Cyan
+    New-Item $officeKey -Force | Out-Null
+    Set-ItemProperty $officeKey -Name enableautomaticupdates -Value 0 -Type DWord -ErrorAction SilentlyContinue
+    Get-ScheduledTask -TaskName $officeTaskName -ErrorAction SilentlyContinue | Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
+
     Write-Host "Disabling DoSvc (registry method)..." -ForegroundColor Cyan
     $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\DoSvc'
     try {
@@ -152,7 +168,14 @@ function Disable-DataSaver {
     Remove-Item $auKey -Recurse -Force -ErrorAction SilentlyContinue
     Remove-ItemProperty $storeKey -Name AutoDownload -ErrorAction SilentlyContinue
     Remove-ItemProperty $storeKey -Name RemoveWindowsStore -ErrorAction SilentlyContinue
+    Remove-ItemProperty $officeKey -Name enableautomaticupdates -ErrorAction SilentlyContinue
+    Get-ScheduledTask -TaskName $officeTaskName -ErrorAction SilentlyContinue | Enable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
     reg add "HKLM\SYSTEM\CurrentControlSet\Services\InstallService" /v Start /t REG_DWORD /d 3 /f | Out-Null
+
+    Write-Host "Re-enabling Windows Telemetry (DiagTrack)..." -ForegroundColor Cyan
+    Set-Service DiagTrack -StartupType Automatic -ErrorAction SilentlyContinue
+    Start-Service DiagTrack -ErrorAction SilentlyContinue
+
     # Restore DoSvc to Automatic (Delayed Start) through the registry
     reg add "HKLM\SYSTEM\CurrentControlSet\Services\DoSvc" /v Start /t REG_DWORD /d 2 /f | Out-Null
     reg add "HKLM\SYSTEM\CurrentControlSet\Services\DoSvc" /v DelayedAutostart /t REG_DWORD /d 1 /f | Out-Null
