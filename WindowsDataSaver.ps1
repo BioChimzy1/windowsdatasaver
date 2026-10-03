@@ -52,35 +52,41 @@
         Press Shift+Esc inside Chrome, sort by Network, close any tab or
         extension using a lot of data. Watch videos at 360p or 480p.
 
- [ ] 6. OneDrive
+ [ ] 6. Turn off News and Interests on the Taskbar
+        Right-click the weather widget ("Hot days ahead" etc.) on the taskbar
+        -> hover over "News and interests" -> select "Turn off".
+        (This stops the ActionsServer.exe process from fetching background data.)       
+
+ [ ] 7. OneDrive
         Not signed in on this laptop, so it has nothing to sync. If you want
         it gone completely: Task Manager -> Startup tab -> Microsoft OneDrive
         -> Disable.
 
- [ ] 7. Check the result
+ [ ] 8. Check the result
         Resource Monitor -> Network tab: nothing should be above a few KB/s
         while you are idle. Also watch the Hotspot counter on your phone.
         Per-app totals: Settings -> Network & Internet -> Data usage
         -> View usage per app.
 
- [ ] 8. Phone side
+ [ ] 9. Phone side
         Part of your bundle is your phone's own apps. On the phone, open data
         usage settings and sort by app. Turn off auto-updates in Play Store
         (Settings -> Network preferences -> Auto-update apps -> Don't
         auto-update apps) and restrict background data for heavy apps.
 
- [ ] 9. Turn the hotspot OFF when you are not using the laptop.
+ [ ] 10. Turn the hotspot OFF when you are not using the laptop.
 
- [ ] 10. REBOOT NOTE
+ [ ] 11. REBOOT NOTE
         Option 1 now disables DoSvc in the registry, so it should stay off after
         a restart. Still check Resource Monitor after a reboot. If anything
         downloads again, run this script and choose 1 before using the hotspot.
         After option 2, RESTART the laptop so DoSvc starts normally again.
 
- [ ] 11. SECURITY NOTE
+ [ ] 12. SECURITY NOTE
         While data saver is ON, this PC does not get Windows updates. Windows
         10 needs security updates, so run option 2 on Wi-Fi with plenty of
         data from time to time, let it update fully, then run option 1 again.
+         
 
 --------------------------------------------------------------------------------
  If something still downloads, run this to see which service owns the process

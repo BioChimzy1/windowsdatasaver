@@ -12,3 +12,9 @@ A PowerShell script to stop Windows background update downloads and preserve mob
 1. Right-click `WindowsDataSaver.ps1` -> **Run with PowerShell** (Run as Administrator).
 2. Choose **Option 1** when using a mobile hotspot to stop downloads.
 3. Choose **Option 2** when connected to unmetered Wi-Fi to allow updates.
+
+## Manual Steps Required
+The script handles the heavy Windows Update background tasks, but you still need to do a few things manually:
+1. **Set your hotspot as a metered connection** in Windows Wi-Fi settings.
+2. **Turn off News and Interests:** Right-click the taskbar weather widget -> **News and interests** -> **Turn off** (stops `ActionsServer.exe`).
+3. **Manage the browser:** Watch videos at lower resolutions and close heavy tabs.
