@@ -23,6 +23,12 @@
    - Disables Windows Telemetry (DiagTrack) to cut diagnostic chatter
    - Disables Microsoft Office background updates (OfficeC2RClient.exe) with
      the Office update policy and the "Office Automatic Updates 2.0" task
+   - Disables the Google (Chrome) and Microsoft Edge background updaters
+     (updater.exe and MicrosoftEdgeUpdate.exe). These ignore Windows'
+     "metered connection" setting. The script stops and disables their
+     services and scheduled tasks, ends the running updater process, and sets
+     the Google Update and Edge Update policies to block updates.
+     Option 2 restores them.
 
 --------------------------------------------------------------------------------
  WHAT A SCRIPT CANNOT DO - DO THESE BY HAND (checklist)
@@ -92,6 +98,9 @@
         Defender definition updates are blocked too. Windows 10 needs security
         updates, so run option 2 on Wi-Fi with plenty of data from time to
         time, let it update fully, then run option 1 again.
+        The same goes for Chrome and Edge: they do not update while data saver
+        is ON. After option 2, open chrome://settings/help and
+        edge://settings/help to update them.
 
 --------------------------------------------------------------------------------
  If something still downloads, run this to see which service owns the process
@@ -112,6 +121,80 @@ $auKey     = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU'
 $storeKey  = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore'
 $officeKey = 'HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\common\officeupdate'
 $officeTaskName = 'Office Automatic Updates 2.0'
+
+# Chrome and Edge background updaters
+$googleKey  = 'HKLM:\SOFTWARE\Policies\Google\Update'
+$edgeKey    = 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate'
+$chromeGuid = '{8A69D345-D564-463C-AFF1-A69D9E530F96}'
+$edgeGuid   = '{56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}'
+$updaterServicePatterns = 'GoogleUpdater*','gupdate','gupdatem','edgeupdate','edgeupdatem'
+$updaterTaskPatterns    = 'GoogleUpdate*','MicrosoftEdgeUpdate*'
+$stateDir  = Join-Path $env:ProgramData 'WindowsDataSaver'
+$stateFile = Join-Path $stateDir 'updater-services.json'
+
+function Get-SavedServiceStart {
+    $saved = @{}
+    if (Test-Path $stateFile) {
+        try {
+            (Get-Content $stateFile -Raw | ConvertFrom-Json).PSObject.Properties |
+                ForEach-Object { $saved[$_.Name] = [int]$_.Value }
+        } catch { }
+    }
+    return $saved
+}
+
+function Set-UpdaterPolicy($key, $appGuid) {
+    New-Item $key -Force | Out-Null
+    Set-ItemProperty $key -Name UpdateDefault -Value 0 -Type DWord
+    Set-ItemProperty $key -Name AutoUpdateCheckPeriodMinutes -Value 0 -Type DWord
+    Set-ItemProperty $key -Name "Update$appGuid" -Value 0 -Type DWord
+}
+
+function Remove-UpdaterPolicy($key, $appGuid) {
+    foreach ($n in 'UpdateDefault','AutoUpdateCheckPeriodMinutes',"Update$appGuid") {
+        Remove-ItemProperty $key -Name $n -ErrorAction SilentlyContinue
+    }
+}
+
+function Disable-UpdaterServices {
+    # Remember each service's original Start value so option 2 can restore it.
+    # Set-Service can be blocked with "access denied", so use the registry.
+    $saved = Get-SavedServiceStart
+    foreach ($svc in (Get-Service -Name $updaterServicePatterns -ErrorAction SilentlyContinue)) {
+        $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$($svc.Name)"
+        $start = (Get-ItemProperty $regPath -Name Start -ErrorAction SilentlyContinue).Start
+        if ($null -ne $start -and $start -ne 4 -and -not $saved.ContainsKey($svc.Name)) {
+            $saved[$svc.Name] = [int]$start
+        }
+        Stop-Service $svc.Name -Force -ErrorAction SilentlyContinue
+        reg add "HKLM\SYSTEM\CurrentControlSet\Services\$($svc.Name)" /v Start /t REG_DWORD /d 4 /f | Out-Null
+    }
+    if ($saved.Count -gt 0) {
+        New-Item $stateDir -ItemType Directory -Force | Out-Null
+        $saved | ConvertTo-Json | Set-Content $stateFile
+    }
+}
+
+function Enable-UpdaterServices {
+    $saved = Get-SavedServiceStart
+    $defaults = @{ gupdate = 2; gupdatem = 3; edgeupdate = 2; edgeupdatem = 3 }
+    foreach ($svc in (Get-Service -Name $updaterServicePatterns -ErrorAction SilentlyContinue)) {
+        $n = $svc.Name
+        if ($saved.ContainsKey($n))       { $start = $saved[$n] }
+        elseif ($defaults.ContainsKey($n)) { $start = $defaults[$n] }
+        elseif ($n -like '*Internal*')     { $start = 3 }
+        else                               { $start = 2 }
+        reg add "HKLM\SYSTEM\CurrentControlSet\Services\$n" /v Start /t REG_DWORD /d $start /f | Out-Null
+    }
+    Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
+}
+
+function Stop-UpdaterProcesses {
+    # updater.exe is a generic name, so only end the ones that live under Google
+    Get-Process -Name updater,GoogleUpdate,MicrosoftEdgeUpdate -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and ($_.Path -like '*\Google\*' -or $_.Path -like '*\Microsoft\EdgeUpdate\*') } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
 
 function Enable-DataSaver {
     Write-Host "Stopping download services..." -ForegroundColor Cyan
@@ -146,6 +229,13 @@ function Enable-DataSaver {
     Set-ItemProperty $officeKey -Name enableautomaticupdates -Value 0 -Type DWord -ErrorAction SilentlyContinue
     Get-ScheduledTask -TaskName $officeTaskName -ErrorAction SilentlyContinue | Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
 
+    Write-Host "Disabling Chrome and Edge background updaters..." -ForegroundColor Cyan
+    Set-UpdaterPolicy $googleKey $chromeGuid
+    Set-UpdaterPolicy $edgeKey $edgeGuid
+    Disable-UpdaterServices
+    Get-ScheduledTask -TaskName $updaterTaskPatterns -ErrorAction SilentlyContinue | Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
+    Stop-UpdaterProcesses
+
     Write-Host "Disabling DoSvc (registry method)..." -ForegroundColor Cyan
     $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\DoSvc'
     try {
@@ -172,6 +262,12 @@ function Disable-DataSaver {
     Get-ScheduledTask -TaskName $officeTaskName -ErrorAction SilentlyContinue | Enable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
     reg add "HKLM\SYSTEM\CurrentControlSet\Services\InstallService" /v Start /t REG_DWORD /d 3 /f | Out-Null
 
+    Write-Host "Re-enabling Chrome and Edge updaters..." -ForegroundColor Cyan
+    Remove-UpdaterPolicy $googleKey $chromeGuid
+    Remove-UpdaterPolicy $edgeKey $edgeGuid
+    Enable-UpdaterServices
+    Get-ScheduledTask -TaskName $updaterTaskPatterns -ErrorAction SilentlyContinue | Enable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
+
     Write-Host "Re-enabling Windows Telemetry (DiagTrack)..." -ForegroundColor Cyan
     Set-Service DiagTrack -StartupType Automatic -ErrorAction SilentlyContinue
     Start-Service DiagTrack -ErrorAction SilentlyContinue
@@ -184,6 +280,7 @@ function Disable-DataSaver {
 
     Write-Host ""
     Write-Host "DATA SAVER OFF. Windows can download updates again." -ForegroundColor Green
+    Write-Host "Chrome and Edge updaters are enabled again. Check chrome://settings/help and edge://settings/help to update them." -ForegroundColor Yellow
     Write-Host "RESTART the laptop now so the Delivery Optimization service starts normally." -ForegroundColor Yellow
     Write-Host "Remember to undo the manual items too (unpause updates, Store auto-update, metered connection) if you want updates." -ForegroundColor Yellow
 }

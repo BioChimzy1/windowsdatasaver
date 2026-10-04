@@ -9,6 +9,7 @@ A PowerShell script to stop Windows background update downloads and preserve mob
 - Disables Microsoft Store auto-updates and Store Install Service
 - Disables Windows Telemetry (`DiagTrack`)
 - Disables Microsoft Office background updates (policy and scheduled task)
+- Disables the Google (Chrome) and Microsoft Edge background updaters (`updater.exe`, `MicrosoftEdgeUpdate.exe`): stops their services and scheduled tasks, ends the running process, and sets the Google Update and Edge Update policies to block updates. These updaters ignore the Windows metered-connection setting, so the script has to handle them directly. **Option 2** restores them.
 
 ## Usage
 1. Right-click `WindowsDataSaver.ps1` -> **Run with PowerShell** (Run as Administrator).
@@ -35,6 +36,9 @@ The script handles the heavy Windows Update background tasks, but you still need
 
 ## Notes
 - While data saver is ON, Windows and Defender updates are blocked. Run **Option 2** on unmetered Wi-Fi from time to time, let the PC update fully, then run **Option 1** again.
+- Chrome and Edge also stop updating while data saver is ON. After **Option 2**, open `chrome://settings/help` and `edge://settings/help` to update them.
 - Windows feature updates can switch `DiagTrack` back on, so re-run **Option 1** now and then.
 - To check the result, use Resource Monitor -> Network, and Settings -> Network & Internet -> Data usage -> View usage per app. If you see a "Reset usage stats" option, use it so you start from zero when testing.
 - If something still downloads, find which service owns the process with `tasklist /svc /fi "PID eq <pid>"`.
+- If `updater.exe` shows heavy Receive traffic in Resource Monitor, that is the Google Updater. Run **Option 1** again and check that its path is under `...\Google\GoogleUpdater\`.
+- Option 1 saves the original startup type of the Chrome and Edge updater services to `C:\ProgramData\WindowsDataSaver\updater-services.json`, and Option 2 restores them from it.
